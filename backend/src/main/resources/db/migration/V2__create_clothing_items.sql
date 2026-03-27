@@ -12,7 +12,8 @@ CREATE TABLE clothing_items (
 
 CREATE TABLE clothing_item_tags (
     clothing_item_id BIGINT          NOT NULL REFERENCES clothing_items(id) ON DELETE CASCADE,
-    tag              VARCHAR(100)    NOT NULL
+    tag              VARCHAR(100)    NOT NULL,
+    PRIMARY KEY (clothing_item_id, tag)
 );
 
 CREATE INDEX idx_clothing_items_user_id ON clothing_items(user_id);
