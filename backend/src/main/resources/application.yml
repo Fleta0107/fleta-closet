@@ -1,3 +1,5 @@
+# 개발 환경 기본값. 운영 환경에서는 반드시 환경변수로 교체할 것.
+# (예: JWT_SECRET, DB_USERNAME, DB_PASSWORD)
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/fleta_closet
