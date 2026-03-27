@@ -38,7 +38,9 @@ backend/
 │   │       ├── ClothingRequest.java     (record)
 │   │       └── ClothingResponse.java    (record)
 │   └── common/
-│       ├── config/SecurityConfig.java
+│       ├── config/
+│       │   ├── JpaConfig.java           ← @EnableJpaAuditing 분리
+│       │   └── SecurityConfig.java
 │       ├── exception/
 │       │   ├── AppException.java
 │       │   ├── ErrorResponse.java       (record)
@@ -65,15 +67,20 @@ backend/
 
 ---
 
-### Task 1: 프로젝트 초기 세팅
+### Task 1: 프로젝트 초기 세팅 ✅
 
 > 📚 **학습 포인트:** Gradle 멀티 모듈이 아닌 단일 모듈로 시작. 나중에 필요 시 분리. `spring-boot-starter-*`는 의존성 묶음(BOM) — 버전을 직접 명시하지 않아도 Spring Boot가 호환 버전을 관리함.
 
+> 🔄 **리팩토링 반영:** `@EnableJpaAuditing`을 `JpaConfig.java`로 분리 (WebMvcTest 슬라이스 테스트 안전성). `.gitignore`에 `.env`, `application-local.yml` 패턴 추가.
+
 **Files:**
 - Create: `backend/build.gradle`
+- Create: `backend/settings.gradle`
 - Create: `backend/docker-compose.yml`
+- Create: `backend/.gitignore`
 - Create: `backend/src/main/resources/application.yml`
 - Create: `backend/src/main/java/com/fleta/closet/FletaClosetApplication.java`
+- Create: `backend/src/main/java/com/fleta/closet/common/config/JpaConfig.java`
 
 - [ ] **Step 1: backend 디렉토리 생성 및 build.gradle 작성**
 
@@ -194,7 +201,7 @@ logging:
     com.fleta: DEBUG
 ```
 
-- [ ] **Step 4: 메인 애플리케이션 클래스 작성**
+- [ ] **Step 4: 메인 애플리케이션 클래스 + JpaConfig 작성**
 
 ```java
 // backend/src/main/java/com/fleta/closet/FletaClosetApplication.java
@@ -202,16 +209,29 @@ package com.fleta.closet;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 
 @SpringBootApplication
-@EnableJpaAuditing   // @CreatedDate, @LastModifiedDate 자동 처리
 public class FletaClosetApplication {
     public static void main(String[] args) {
         SpringApplication.run(FletaClosetApplication.class, args);
     }
 }
 ```
+
+```java
+// backend/src/main/java/com/fleta/closet/common/config/JpaConfig.java
+package com.fleta.closet.common.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
+
+@Configuration
+@EnableJpaAuditing  // FletaClosetApplication에서 분리 — @WebMvcTest 슬라이스 테스트 충돌 방지
+public class JpaConfig {
+}
+```
+
+> 💡 **이유:** `@EnableJpaAuditing`을 메인 클래스에 두면 `@WebMvcTest` 테스트 시 JPA 컨텍스트가 없어 오류 발생. 별도 `@Configuration`으로 분리하면 안전.
 
 - [ ] **Step 5: Docker로 PostgreSQL 실행 후 빌드 확인**
 
@@ -233,13 +253,16 @@ docker compose ps
 ```bash
 git add backend/
 git commit -m "chore: initialize Spring Boot backend project"
+git commit -m "chore: improve project config (JpaConfig, .gitignore, yml comments)"
 ```
 
 ---
 
-### Task 2: Flyway DB 마이그레이션
+### Task 2: Flyway DB 마이그레이션 ✅
 
 > 📚 **학습 포인트:** `ddl-auto=create`로 JPA가 자동으로 테이블을 만들 수 있지만, 운영에서는 절대 사용 불가. Flyway는 SQL 파일을 버전별로 관리해 DB 스키마를 코드처럼 변경 이력을 추적함. `V숫자__설명.sql` 네이밍 규칙이 중요.
+
+> 🔄 **리팩토링 반영:** `clothing_item_tags`에 복합 PK `(clothing_item_id, tag)` 추가 — 태그 중복 방지 및 조회 인덱스 확보. **Task 12에서 JPA 엔티티 tags 필드를 `List<String>` 대신 `Set<String>`으로 선언할 것.**
 
 **Files:**
 - Create: `backend/src/main/resources/db/migration/V1__create_users.sql`
@@ -277,9 +300,11 @@ CREATE TABLE clothing_items (
 );
 
 -- tags는 별도 테이블로 관리 (JPA @ElementCollection)
+-- 복합 PK로 중복 태그 방지 및 인덱스 확보 → JPA 엔티티에서 Set<String> 사용
 CREATE TABLE clothing_item_tags (
     clothing_item_id BIGINT       NOT NULL REFERENCES clothing_items(id) ON DELETE CASCADE,
-    tag              VARCHAR(100) NOT NULL
+    tag              VARCHAR(100) NOT NULL,
+    PRIMARY KEY (clothing_item_id, tag)
 );
 
 CREATE INDEX idx_clothing_items_user_id ON clothing_items(user_id);
@@ -1458,6 +1483,8 @@ git commit -m "test: add Auth integration tests with Testcontainers"
 
 ### Task 12: ClothingItem 엔티티 + Category + Repository
 
+> ⚠️ **Task 2 리팩토링 반영:** `clothing_item_tags` 테이블에 복합 PK `(clothing_item_id, tag)`가 있으므로 tags 필드를 `Set<String>`으로 선언해야 함. `List<String>`은 중복을 허용하므로 DB 제약 위반 발생.
+
 **Files:**
 - Create: `backend/src/main/java/com/fleta/closet/closet/domain/Category.java`
 - Create: `backend/src/main/java/com/fleta/closet/closet/domain/ClothingItem.java`
@@ -1525,7 +1552,7 @@ public class ClothingItem {
     )
     @Column(name = "tag")
     @Builder.Default
-    private List<String> tags = new ArrayList<>();
+    private Set<String> tags = new HashSet<>();  // List → Set: clothing_item_tags 복합 PK와 일치
 
     @CreatedDate
     @Column(updatable = false)
@@ -1535,13 +1562,13 @@ public class ClothingItem {
     private LocalDateTime updatedAt;
 
     public void update(Category category, String brand, String color,
-                       List<String> tags, String memo, String imagePath) {
+                       Set<String> tags, String memo, String imagePath) {
         this.category  = category;
         this.brand     = brand;
         this.color     = color;
         this.memo      = memo;
         this.tags.clear();
-        this.tags.addAll(tags != null ? tags : List.of());
+        this.tags.addAll(tags != null ? tags : Set.of());
         if (imagePath != null) {
             this.imagePath = imagePath;
         }
@@ -1603,7 +1630,7 @@ public record ClothingRequest(
     Category category,
     String brand,
     String color,
-    List<String> tags,
+    Set<String> tags,
     String memo
 ) {}
 ```
@@ -1620,7 +1647,7 @@ public record ClothingResponse(
     Category category,
     String brand,
     String color,
-    List<String> tags,
+    Set<String> tags,
     String memo,
     String imageUrl,   // 이미지 조회 API URL (/api/closet/items/{id}/image)
     LocalDateTime createdAt
@@ -1792,7 +1819,7 @@ class ClothingServiceTest {
     void create_success() throws Exception {
         User user = User.builder().id(1L).email("u@t.com").nickname("닉").build();
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        ClothingRequest request = new ClothingRequest(Category.TOPS, "Nike", "White", List.of("Casual"), null);
+        ClothingRequest request = new ClothingRequest(Category.TOPS, "Nike", "White", Set.of("Casual"), null);
         ClothingItem saved = ClothingItem.builder().id(10L).user(user).category(Category.TOPS).build();
         when(clothingRepository.save(any(ClothingItem.class))).thenReturn(saved);
 
@@ -1914,7 +1941,7 @@ public class ClothingService {
             .category(request.category())
             .brand(request.brand())
             .color(request.color())
-            .tags(request.tags() != null ? request.tags() : List.of())
+            .tags(request.tags() != null ? request.tags() : Set.of())
             .memo(request.memo())
             .imagePath(imagePath)
             .build();
@@ -2184,7 +2211,7 @@ class ClothingIntegrationTest {
         // 등록
         String requestJson = objectMapper.writeValueAsString(
             new com.fleta.closet.closet.domain.ClothingRequest(
-                Category.TOPS, "Nike", "White", java.util.List.of("Casual"), null));
+                Category.TOPS, "Nike", "White", java.util.Set.of("Casual"), null));
 
         MockMultipartFile dataPart  = new MockMultipartFile("data", "", MediaType.APPLICATION_JSON_VALUE, requestJson.getBytes());
 
