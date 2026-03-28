@@ -42,4 +42,16 @@ public class AppException extends RuntimeException {
     public static AppException userNotFound() {
         return new AppException(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다");
     }
+
+    public static AppException fileNotFound() {
+        return new AppException(404, "FILE_NOT_FOUND", "파일을 찾을 수 없습니다.");
+    }
+
+    public static AppException invalidFilePath() {
+        return new AppException(400, "INVALID_FILE_PATH", "유효하지 않은 파일 경로입니다.");
+    }
+
+    public static AppException invalidFileType() {
+        return new AppException(400, "INVALID_FILE_TYPE", "허용되지 않는 파일 형식입니다. (jpg, jpeg, png, webp, gif만 허용)");
+    }
 }
