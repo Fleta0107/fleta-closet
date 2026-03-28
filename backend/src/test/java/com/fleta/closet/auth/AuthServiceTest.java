@@ -95,4 +95,105 @@ class AuthServiceTest {
                 .isInstanceOf(AppException.class)
                 .extracting("code").isEqualTo("INVALID_CREDENTIALS");
     }
+
+    @Test
+    @DisplayName("유효한 Refresh Token으로 새 토큰 발급 (Rotation)")
+    void refresh_success() {
+        User user = User.builder().email("u@test.com").password("pw").nickname("닉")
+                .refreshToken("valid-refresh").build();
+        ReflectionTestUtils.setField(user, "id", 1L);
+        when(jwtTokenProvider.isAccessToken("valid-refresh")).thenReturn(false);
+        when(userRepository.findByRefreshToken("valid-refresh")).thenReturn(Optional.of(user));
+        when(jwtTokenProvider.createAccessToken(1L)).thenReturn("new-access-token");
+        when(jwtTokenProvider.createRefreshToken(1L)).thenReturn("new-refresh-token");
+        when(userRepository.save(any(User.class))).thenReturn(user);
+
+        TokenResponse response = authService.refresh("valid-refresh");
+
+        assertThat(response.accessToken()).isEqualTo("new-access-token");
+        assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
+        assertThat(user.getRefreshToken()).isEqualTo("new-refresh-token");  // Rotation 검증
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("DB에 없는 Refresh Token → INVALID_TOKEN 예외")
+    void refresh_unknownToken_throws() {
+        when(jwtTokenProvider.isAccessToken("unknown")).thenReturn(false);
+        when(userRepository.findByRefreshToken("unknown")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.refresh("unknown"))
+                .isInstanceOf(AppException.class)
+                .extracting("code").isEqualTo("INVALID_TOKEN");
+    }
+
+    @Test
+    @DisplayName("Access Token으로 refresh 요청 시 → INVALID_TOKEN 예외")
+    void refresh_withAccessToken_throws() {
+        when(jwtTokenProvider.isAccessToken("access-token")).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.refresh("access-token"))
+                .isInstanceOf(AppException.class)
+                .extracting("code").isEqualTo("INVALID_TOKEN");
+    }
+
+    @Test
+    @DisplayName("만료된 Refresh Token → INVALID_TOKEN 예외")
+    void refresh_expiredToken_throws() {
+        when(jwtTokenProvider.isAccessToken("expired-refresh"))
+                .thenThrow(AppException.expiredToken());
+
+        assertThatThrownBy(() -> authService.refresh("expired-refresh"))
+                .isInstanceOf(AppException.class)
+                .extracting("code").isEqualTo("INVALID_TOKEN");
+    }
+
+    @Test
+    @DisplayName("로그아웃 시 Refresh Token null 처리")
+    void logout_success() {
+        User user = User.builder().email("u@test.com").password("pw").nickname("닉")
+                .refreshToken("some-token").build();
+        ReflectionTestUtils.setField(user, "id", 1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.save(any(User.class))).thenReturn(user);
+
+        authService.logout(1L);
+
+        assertThat(user.getRefreshToken()).isNull();
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 사용자 로그아웃 → USER_NOT_FOUND 예외")
+    void logout_userNotFound_throws() {
+        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.logout(99L))
+                .isInstanceOf(AppException.class)
+                .extracting("code").isEqualTo("USER_NOT_FOUND");
+    }
+
+    @Test
+    @DisplayName("내 정보 조회 성공")
+    void getMe_success() {
+        User user = User.builder().email("me@test.com").password("pw").nickname("나").build();
+        ReflectionTestUtils.setField(user, "id", 1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        UserResponse response = authService.getMe(1L);
+
+        assertThat(response.id()).isEqualTo(1L);
+        assertThat(response.email()).isEqualTo("me@test.com");
+        assertThat(response.nickname()).isEqualTo("나");
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 사용자 내 정보 조회 → USER_NOT_FOUND 예외")
+    void getMe_userNotFound_throws() {
+        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.getMe(99L))
+                .isInstanceOf(AppException.class)
+                .extracting("code").isEqualTo("USER_NOT_FOUND");
+    }
 }

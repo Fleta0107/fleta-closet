@@ -46,4 +46,40 @@ public class AuthService {
 
         return new TokenResponse(accessToken, refreshToken);
     }
+
+    public TokenResponse refresh(String refreshToken) {
+        try {
+            if (jwtTokenProvider.isAccessToken(refreshToken)) {
+                throw AppException.invalidToken();
+            }
+        } catch (AppException e) {
+            // 만료/잘못된 토큰은 모두 INVALID_TOKEN으로 통일
+            throw AppException.invalidToken();
+        }
+
+        User user = userRepository.findByRefreshToken(refreshToken)
+                .orElseThrow(AppException::invalidToken);
+
+        String newAccess  = jwtTokenProvider.createAccessToken(user.getId());
+        String newRefresh = jwtTokenProvider.createRefreshToken(user.getId());
+
+        user.updateRefreshToken(newRefresh);
+        userRepository.save(user);
+
+        return new TokenResponse(newAccess, newRefresh);
+    }
+
+    public void logout(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(AppException::userNotFound);
+        user.clearRefreshToken();
+        userRepository.save(user);
+    }
+
+    @Transactional(readOnly = true)
+    public UserResponse getMe(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(AppException::userNotFound);
+        return UserResponse.from(user);
+    }
 }
